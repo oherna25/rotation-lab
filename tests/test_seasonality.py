@@ -8,6 +8,7 @@ from rotation_lab.seasonality import (
     _weekly_log_returns,
     build_monthly_seasonality,
     build_seasonal_profile,
+    seasonal_cycle,
     seasonal_outlook,
 )
 
@@ -57,3 +58,28 @@ def test_forward_window_wraps_into_the_next_year():
 
     with pytest.raises(ValueError):
         seasonal_outlook(profile, prices, weeks_ahead=0)
+
+
+def test_annual_cycle_sees_the_march_rally_from_february():
+    idx = pd.bdate_range("2016-01-04", "2023-02-15")
+    px = pd.Series(100.0, index=idx)
+    for ts in idx:
+        if ts.month == 3:
+            px.loc[ts] = 100.0 + 20.0 * min((ts.day - 1) / 30.0, 1.0)
+        elif ts.month > 3:
+            px.loc[ts] = 120.0
+
+    cycle = seasonal_cycle(px, horizon_days=30)
+    assert cycle.year == 2023
+    assert cycle.n_years == 7
+    assert cycle.as_of == pd.Timestamp("2023-02-15")
+    assert 0.0 <= cycle.seas_idx <= 5.0
+    assert cycle.bias_pts > 5.0
+    assert cycle.win_rate_pct == 100.0
+    assert cycle.composite.index.max().month == 12
+    assert len(cycle.drift) == 31
+    assert cycle.drift.iloc[0] == pytest.approx(float(cycle.current.iloc[-1]))
+    assert int(cycle.current.index[-1].year) == 2023
+
+    with pytest.raises(ValueError):
+        seasonal_cycle(px, horizon_days=0)

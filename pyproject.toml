@@ -17,8 +17,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
-interactive = ["streamlit>=1.30"]
+dev = ["pytest>=8.0", "plotly>=5.20"]
+interactive = ["streamlit>=1.40", "plotly>=5.20"]
 
 [project.scripts]
 rotation-lab = "rotation_lab.cli:main"

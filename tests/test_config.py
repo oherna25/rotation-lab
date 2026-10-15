@@ -24,6 +24,16 @@ def test_empty_spec_is_the_intermarket_book():
     assert "EEM" in {asset.ticker for asset in DEFAULT_UNIVERSE}
 
 
+def test_sector_preset_is_the_eleven_spdrs():
+    tickers = [asset.ticker for asset in preset_universe("sectors")]
+    assert tickers == ["XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY"]
+    groups = {asset.ticker: asset.group for asset in preset_universe("sectors")}
+    assert groups["XLU"] == "Defense"
+    assert groups["XLRE"] == "Rate-Sens"
+    assert groups["XLK"] == "Growth"
+    assert "SPY" not in groups
+
+
 def test_presets_and_benchmark_label():
     assert {asset.ticker for asset in preset_universe("crypto")} == {"BTC-USD", "ETH-USD"}
     assert benchmark_asset("spy").label == "S&P 500"

@@ -46,6 +46,71 @@ def test_offline_with_no_cache_is_labelled_demo(tmp_path):
     assert data.missing == ()
 
 
+def test_fresh_cache_skips_the_network(tmp_path, monkeypatch):
+    idx = pd.bdate_range("2020-01-01", "2020-06-30")
+    series = pd.Series(np.linspace(100, 120, len(idx)), index=idx, name="GLD")
+    series.to_csv(tmp_path / "GLD.csv", header=["close"])
+
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("fresh cache should not download")
+
+    monkeypatch.setattr("rotation_lab.data._download", _boom)
+    data = fetch_prices(
+        ["GLD"],
+        start="2020-01-01",
+        end="2020-06-30",
+        cache_dir=tmp_path,
+        refresh_days=10,
+    )
+    assert data.prices["GLD"].iloc[-1] == pytest.approx(120)
+    assert data.source == "cache"
+
+
+def test_force_refresh_downloads_even_when_the_cache_is_fresh(tmp_path, monkeypatch):
+    idx = pd.bdate_range("2020-01-01", "2020-06-30")
+    series = pd.Series(np.linspace(100, 120, len(idx)), index=idx, name="GLD")
+    series.to_csv(tmp_path / "GLD.csv", header=["close"])
+    calls: dict[str, list[str]] = {}
+
+    def _fake(tickers, start, end, cache_dir):
+        del start, end, cache_dir
+        calls["tickers"] = list(tickers)
+        refreshed = series.copy()
+        refreshed.iloc[-1] = 999.0
+        return {"GLD": refreshed}
+
+    monkeypatch.setattr("rotation_lab.data._download", _fake)
+    data = fetch_prices(
+        ["GLD"],
+        start="2020-01-01",
+        end="2020-06-30",
+        cache_dir=tmp_path,
+        refresh_days=10,
+        force_refresh=True,
+    )
+    assert calls["tickers"] == ["GLD"]
+    assert data.prices["GLD"].iloc[-1] == pytest.approx(999)
+    assert "yfinance" in data.source
+
+
+def test_force_refresh_keeps_the_cache_when_the_download_fails(tmp_path, monkeypatch):
+    idx = pd.bdate_range("2020-01-01", "2020-06-30")
+    series = pd.Series(np.linspace(100, 120, len(idx)), index=idx, name="GLD")
+    series.to_csv(tmp_path / "GLD.csv", header=["close"])
+    monkeypatch.setattr("rotation_lab.data._download", lambda *_args, **_kwargs: {})
+    data = fetch_prices(
+        ["GLD"],
+        start="2020-01-01",
+        end="2020-06-30",
+        cache_dir=tmp_path,
+        refresh_days=10,
+        force_refresh=True,
+    )
+    assert data.prices["GLD"].iloc[-1] == pytest.approx(120)
+    assert data.source == "cache"
+    assert data.is_demo is False
+
+
 def test_partial_cache_is_not_padded_with_synthetic_prices(tmp_path):
     idx = pd.bdate_range("2020-01-01", "2020-12-31")
     series = pd.Series(np.linspace(100, 110, len(idx)), index=idx)

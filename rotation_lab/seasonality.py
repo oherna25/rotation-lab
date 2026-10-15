@@ -32,10 +32,12 @@ import pandas as pd
 
 __all__ = [
     "MonthlySeasonality",
+    "SeasonalCycle",
     "SeasonalOutlook",
     "SeasonalProfile",
     "build_monthly_seasonality",
     "build_seasonal_profile",
+    "seasonal_cycle",
     "seasonal_outlook",
 ]
 
@@ -322,6 +324,217 @@ def seasonal_outlook(
     table = table.sort_values("expected_return_pct", ascending=False, na_position="last").reset_index(drop=True)
     table.insert(0, "rank", np.arange(1, len(table) + 1))
     return SeasonalOutlook(table=table)
+
+
+# --------------------------------------------------------------------------- #
+# annual cycle (dashboard)
+# --------------------------------------------------------------------------- #
+@dataclass
+class SeasonalCycle:
+    """Williams-style annual path for one series, scaled to 100.
+
+    ``composite`` is the average of completed years, each rebased to 100 on
+    that year's first print, drawn on the calendar of ``year``. ``current``
+    is this year's path on the same scale. ``drift`` starts at the last
+    print and walks forward ``horizon_days`` calendar days by the average
+    historical log return for each month/day. ``seas_idx`` is where today's
+    composite sits between its own low and high, from 0 to 100. ``bias_pts``
+    is the average historical simple return over the next ``horizon_days``,
+    in points of a 100-based index.
+    """
+
+    composite: pd.Series
+    current: pd.Series
+    drift: pd.Series
+    as_of: pd.Timestamp
+    year: int
+    n_years: int
+    seas_idx: float
+    bias_pts: float
+    win_rate_pct: float
+    horizon_days: int = 30
+
+
+def seasonal_cycle(prices: pd.Series, horizon_days: int = 30) -> SeasonalCycle:
+    """Build the annual seasonal cycle shown next to the rotation chart.
+
+    Years that do not start in January are left out of the average so a late
+    listing does not anchor the composite in June. ``n_years`` is the count
+    actually used.
+    """
+    if horizon_days < 1:
+        raise ValueError("horizon_days must be >= 1")
+
+    series = prices.dropna().astype(float).sort_index()
+    if isinstance(series.index, pd.DatetimeIndex) and series.index.tz is not None:
+        series.index = series.index.tz_localize(None)
+    series = series[~series.index.duplicated(keep="last")]
+    if series.empty:
+        raise ValueError("seasonal_cycle needs at least one price")
+
+    as_of = pd.Timestamp(series.index[-1]).normalize()
+    year = int(as_of.year)
+    paths = _anchored_year_paths(series, year)
+    if paths:
+        stacked = pd.concat(paths, axis=1)
+        mean = stacked.mean(axis=1).dropna().sort_index()
+        n_years = int(stacked.shape[1])
+    else:
+        mean = pd.Series(dtype=float)
+        n_years = 0
+
+    composite = _stamp_month_day(mean, year)
+    current = _rebased_year(series, year)
+    bias_pts, win_rate = _forward_bias(series, as_of, horizon_days, year)
+    return SeasonalCycle(
+        composite=composite,
+        current=current,
+        drift=_defend_drift(series, current, year, horizon_days),
+        as_of=as_of,
+        year=year,
+        n_years=n_years,
+        seas_idx=_seasonal_index(composite, as_of),
+        bias_pts=bias_pts,
+        win_rate_pct=win_rate,
+        horizon_days=int(horizon_days),
+    )
+
+
+def _anchored_year_paths(series: pd.Series, current_year: int) -> list[pd.Series]:
+    """Completed years rebased to 100, indexed by (month, day)."""
+    paths: list[pd.Series] = []
+    for yr, chunk in series.groupby(series.index.year):
+        if int(yr) >= current_year:
+            continue
+        chunk = chunk.dropna()
+        if chunk.empty or int(chunk.index[0].month) != 1 or len(chunk) < 100:
+            continue
+        base = float(chunk.iloc[0])
+        if base == 0.0 or not np.isfinite(base):
+            continue
+        rebased = chunk / base * 100.0
+        keyed = pd.Series(
+            rebased.to_numpy(dtype=float),
+            index=pd.MultiIndex.from_arrays(
+                [rebased.index.month.astype(int), rebased.index.day.astype(int)],
+                names=["month", "day"],
+            ),
+        )
+        paths.append(keyed[~keyed.index.duplicated(keep="last")])
+    return paths
+
+
+def _stamp_month_day(values: pd.Series, year: int) -> pd.Series:
+    """Map a (month, day) series onto real dates in ``year``."""
+    if values.empty:
+        return pd.Series(dtype=float)
+    rows: dict[pd.Timestamp, float] = {}
+    for key, value in values.items():
+        month, day = int(key[0]), int(key[1])
+        stamp = _safe_stamp(year, month, day)
+        if stamp is None or not np.isfinite(value):
+            continue
+        rows[stamp] = float(value)
+    if not rows:
+        return pd.Series(dtype=float)
+    out = pd.Series(rows).sort_index()
+    return out[~out.index.duplicated(keep="last")]
+
+
+def _rebased_year(series: pd.Series, year: int) -> pd.Series:
+    chunk = series[series.index.year == year].dropna()
+    if chunk.empty:
+        return pd.Series(dtype=float)
+    base = float(chunk.iloc[0])
+    if base == 0.0 or not np.isfinite(base):
+        return pd.Series(dtype=float)
+    out = chunk / base * 100.0
+    out.index = pd.DatetimeIndex(out.index).normalize()
+    return out
+
+
+def _seasonal_index(composite: pd.Series, as_of: pd.Timestamp) -> float:
+    """0 at the composite's low, 100 at its high, measured at ``as_of``."""
+    values = composite.dropna()
+    if values.empty:
+        return float("nan")
+    span = float(values.max() - values.min())
+    prior = values.loc[:as_of]
+    val = float(prior.iloc[-1] if len(prior) else values.iloc[-1])
+    if not np.isfinite(span) or span == 0.0:
+        return 50.0
+    return float(np.clip((val - float(values.min())) / span * 100.0, 0.0, 100.0))
+
+
+def _forward_bias(
+    series: pd.Series,
+    as_of: pd.Timestamp,
+    horizon_days: int,
+    current_year: int,
+) -> tuple[float, float]:
+    """Mean point change and win rate of the next ``horizon_days`` across prior years."""
+    returns: list[float] = []
+    for yr in sorted({int(y) for y in series.index.year}):
+        if yr >= current_year:
+            continue
+        anchor = _safe_stamp(yr, int(as_of.month), int(as_of.day))
+        if anchor is None:
+            continue
+        start_px = _price_on_or_before(series, anchor, tolerance_days=4)
+        end_px = _price_on_or_before(series, anchor + pd.Timedelta(days=horizon_days), tolerance_days=4)
+        if start_px is None or end_px is None or start_px == 0.0:
+            continue
+        returns.append(end_px / start_px - 1.0)
+    if not returns:
+        return float("nan"), float("nan")
+    arr = np.asarray(returns, dtype=float)
+    return float(arr.mean() * 100.0), float((arr > 0).mean() * 100.0)
+
+
+def _defend_drift(series: pd.Series, current: pd.Series, current_year: int, horizon_days: int) -> pd.Series:
+    """Project the average month/day log return forward from the last print."""
+    if current.empty:
+        return pd.Series(dtype=float)
+    log_ret = np.log(series.where(series > 0.0)).diff().dropna()
+    hist = log_ret[log_ret.index.year < current_year]
+    if hist.empty:
+        return pd.Series(dtype=float)
+    avg = pd.Series(
+        hist.to_numpy(dtype=float),
+        index=pd.MultiIndex.from_arrays([hist.index.month.astype(int), hist.index.day.astype(int)]),
+    )
+    avg = avg.groupby(level=[0, 1]).mean()
+    level = float(current.iloc[-1])
+    anchor = pd.Timestamp(current.index[-1]).normalize()
+    points = {anchor: level}
+    for step in range(1, horizon_days + 1):
+        day = anchor + pd.Timedelta(days=step)
+        key = (int(day.month), int(day.day))
+        change = float(avg[key]) if key in avg.index and np.isfinite(avg[key]) else 0.0
+        level *= float(np.exp(change))
+        points[day] = level
+    return pd.Series(points).sort_index()
+
+
+def _safe_stamp(year: int, month: int, day: int) -> pd.Timestamp | None:
+    """Calendar date, or None when that day does not exist (31 Feb)."""
+    try:
+        return pd.Timestamp(year=year, month=month, day=day)
+    except ValueError:
+        if month == 2 and day == 29:
+            return pd.Timestamp(year=year, month=2, day=28)
+        return None
+
+
+def _price_on_or_before(series: pd.Series, when: pd.Timestamp, tolerance_days: int) -> float | None:
+    window = series.loc[:when]
+    if window.empty:
+        return None
+    age = when - pd.Timestamp(window.index[-1])
+    if age > pd.Timedelta(days=tolerance_days):
+        return None
+    value = float(window.iloc[-1])
+    return value if np.isfinite(value) else None
 
 
 # --------------------------------------------------------------------------- #

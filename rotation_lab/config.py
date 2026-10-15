@@ -1,16 +1,18 @@
 """Static configuration for rotation-lab.
 
 Defines the default *intermarket* universe (currencies, metals, energy, rates,
-crypto), the benchmark, a shared colour palette and helper constructors.
+crypto), the 11 S&P 500 sector ETFs, the benchmark, a shared colour palette
+and helper constructors.
 
-The universe is deliberately intermarket: instead of rotating through equity
-sectors (the classic RRG use case), we rotate through the macro asset classes
-that transmit liquidity between markets:
+The default book rotates through the macro asset classes that transmit
+liquidity between markets:
 
     US Dollar -> Rates -> Commodities -> Equities -> Crypto
 
-Everything is overridable from the CLI (``--assets "GLD=Gold,TLT=Long Bonds"``)
-or programmatically (see :func:`universe_from_spec`).
+``sectors`` is the classic relative-rotation book: the 11 SPDR sector ETFs
+versus SPY. Everything is overridable from the CLI
+(``--assets "GLD=Gold,TLT=Long Bonds"``) or programmatically
+(see :func:`universe_from_spec`).
 """
 
 from __future__ import annotations
@@ -60,9 +62,26 @@ DEFAULT_UNIVERSE: tuple[Asset, ...] = (
     Asset("BTC-USD", "Bitcoin", "Crypto", "#F7931A"),
 )
 
+#: SPDR sector ETFs, the classic RRG universe. ``group`` is the cycle
+#: bucket shown in the seasonal matrix (defensive, cyclical, growth, rates).
+SECTOR_UNIVERSE: tuple[Asset, ...] = (
+    Asset("XLB", "Materials", "Cyclical", "#C4A35A"),
+    Asset("XLC", "Comm. Services", "Growth", "#5B8DEF"),
+    Asset("XLE", "Energy", "Cyclical", "#E07A3D"),
+    Asset("XLF", "Financials", "Cyclical", "#4C9AFF"),
+    Asset("XLI", "Industrials", "Cyclical", "#7EB6FF"),
+    Asset("XLK", "Technology", "Growth", "#8F9BFF"),
+    Asset("XLP", "Staples", "Defense", "#6FCF97"),
+    Asset("XLRE", "Real Estate", "Rate-Sens", "#E0A106"),
+    Asset("XLU", "Utilities", "Defense", "#3DDC97"),
+    Asset("XLV", "Health Care", "Defensive", "#3CB7A0"),
+    Asset("XLY", "Discretionary", "Cyclical", "#5AA9FF"),
+)
+
 #: Named books. ``--assets`` replaces the selected preset entirely.
 PRESETS: dict[str, tuple[Asset, ...]] = {
     "intermarket": DEFAULT_UNIVERSE,
+    "sectors": SECTOR_UNIVERSE,
     "metals": (
         Asset("GLD", "Gold", "Metals", "#D4AF37"),
         Asset("SLV", "Silver", "Metals", "#8E9AAB"),

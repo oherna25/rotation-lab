@@ -16,7 +16,7 @@ source .venv/bin/activate
 pip install -e ".[dev,interactive]"
 ```
 
-Python 3.10+. Runtime dependencies are numpy, pandas, matplotlib and yfinance. Streamlit is optional (`interactive`).
+Python 3.10+. Runtime dependencies are numpy, pandas, matplotlib and yfinance. Streamlit and Plotly are optional (`interactive`).
 
 ## Run
 
@@ -43,11 +43,14 @@ rotation-lab run --assets "GLD=Gold,TLT=Long Bonds,USO=Crude Oil" --theme dark
 python -m rotation_lab run --offline
 ```
 
-Interactive controls (same calculations):
+Interactive dashboard (same calculations, one dark screen):
 
 ```bash
+pip install -e ".[interactive]"
 streamlit run streamlit_app.py
 ```
+
+It opens on the 11 S&P 500 sector ETFs versus SPY: the rotation chart on the left, the seasonal matrix on the right, and the row you click drawn as that name's Williams annual cycle. **Refresh Live Data** downloads prices again instead of reusing a cache file from earlier today. **Auto (15m)** repeats that download every 15 minutes while the page is open.
 
 ## Universe
 
@@ -65,7 +68,7 @@ Default preset `intermarket`, all versus SPY:
 | EEM | Emerging-market equities |
 | BTC-USD | Bitcoin |
 
-Other presets: `metals` (GLD, SLV, CPER, PPLT, USO), `rates` (TLT, IEF, SHY, HYG, LQD), `crypto` (BTC-USD, ETH-USD). `--assets` replaces the preset. The benchmark is removed from the universe if you include it in both.
+Other presets: `sectors` (XLB, XLC, XLE, XLF, XLI, XLK, XLP, XLRE, XLU, XLV, XLY), `metals` (GLD, SLV, CPER, PPLT, USO), `rates` (TLT, IEF, SHY, HYG, LQD), `crypto` (BTC-USD, ETH-USD). `--assets` replaces the preset. The benchmark is removed from the universe if you include it in both. The dashboard starts on `sectors`.
 
 History starts at 2013-01-01 so the seasonal composite has a decade to work with. Pass `--start` to change it.
 

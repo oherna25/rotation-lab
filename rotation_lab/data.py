@@ -63,6 +63,7 @@ def fetch_prices(
     cache_dir: Path | str = DEFAULT_CACHE_DIR,
     refresh_days: int = 1,
     offline: bool = False,
+    force_refresh: bool = False,
     seed: int = 7,
 ) -> MarketData:
     """Load adjusted-close prices for ``tickers``.
@@ -79,6 +80,9 @@ def fetch_prices(
         Consider a cache file fresh if modified within this many days.
     offline:
         Never touch the network; use cache or synthetic demo data.
+    force_refresh:
+        Download again even when the cache file is still inside
+        ``refresh_days``. A failed download falls back to that cache.
     seed:
         Seed for the synthetic generator (deterministic demo output).
     """
@@ -90,7 +94,8 @@ def fetch_prices(
     stale: list[str] = []
     for ticker in tickers:
         series = _read_cache(cache_dir, ticker)
-        if series is None or not _covers(series, start) or _is_stale(cache_dir, ticker, refresh_days):
+        stale_file = series is None or not _covers(series, start) or _is_stale(cache_dir, ticker, refresh_days)
+        if stale_file or force_refresh:
             stale.append(ticker)
         if series is not None:
             cached[ticker] = series
