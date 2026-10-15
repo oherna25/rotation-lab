@@ -1,0 +1,9 @@
+# Streamlit Community Cloud installs this file, not the optional
+# "interactive" extra in pyproject.toml. plotly has to be listed here or
+# streamlit_app.py exits on import.
+numpy>=1.24
+pandas>=2.0
+matplotlib>=3.7
+yfinance>=0.2.40
+plotly>=5.20
+streamlit>=1.45

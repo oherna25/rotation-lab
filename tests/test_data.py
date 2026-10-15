@@ -111,6 +111,31 @@ def test_force_refresh_keeps_the_cache_when_the_download_fails(tmp_path, monkeyp
     assert data.is_demo is False
 
 
+def test_cache_write_error_does_not_drop_the_download(tmp_path, monkeypatch):
+    idx = pd.bdate_range("2020-01-01", "2020-04-01")
+    frame = pd.DataFrame({"Close": np.linspace(100, 110, len(idx))}, index=idx)
+
+    import yfinance
+
+    monkeypatch.setattr(yfinance, "download", lambda *_args, **_kwargs: frame)
+
+    def _unwritable(*_args, **_kwargs):
+        raise OSError("read-only file system")
+
+    monkeypatch.setattr("rotation_lab.data._write_cache", _unwritable)
+    data = fetch_prices(
+        ["GLD"],
+        start="2020-01-01",
+        end="2020-04-01",
+        cache_dir=tmp_path,
+        refresh_days=0,
+        force_refresh=True,
+    )
+    assert data.is_demo is False
+    assert data.prices["GLD"].iloc[0] == pytest.approx(100)
+    assert data.prices["GLD"].iloc[-1] == pytest.approx(110)
+
+
 def test_partial_cache_is_not_padded_with_synthetic_prices(tmp_path):
     idx = pd.bdate_range("2020-01-01", "2020-12-31")
     series = pd.Series(np.linspace(100, 110, len(idx)), index=idx)

@@ -52,6 +52,8 @@ streamlit run streamlit_app.py
 
 It opens on the 11 S&P 500 sector ETFs versus SPY: the rotation chart on the left, the seasonal matrix on the right, and the row you click drawn as that name's Williams annual cycle. **Refresh Live Data** downloads prices again instead of reusing a cache file from earlier today. **Auto (15m)** repeats that download every 15 minutes while the page is open.
 
+Streamlit Community Cloud deploys `streamlit_app.py` and installs `requirements.txt`. Plotly is in that file because Cloud does not install the optional `interactive` extra. In the app settings, set sharing to **Public** so the page does not bounce through the Streamlit login.
+
 ## Universe
 
 Default preset `intermarket`, all versus SPY:

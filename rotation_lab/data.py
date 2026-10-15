@@ -274,7 +274,11 @@ def _download(
             if series is None or series.empty:
                 LOG.warning("Empty download for %s", ticker)
                 continue
-            _write_cache(cache_dir, ticker, series)
+            try:
+                _write_cache(cache_dir, ticker, series)
+            except OSError as exc:
+                # Streamlit Cloud's disk is sometimes read-only. Keep the download.
+                LOG.warning("Could not cache %s (%s); using the download anyway", ticker, exc)
             out[ticker] = series
     return out
 
