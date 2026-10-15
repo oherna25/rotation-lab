@@ -111,6 +111,33 @@ def test_force_refresh_keeps_the_cache_when_the_download_fails(tmp_path, monkeyp
     assert data.is_demo is False
 
 
+def test_a_hung_download_is_abandoned(tmp_path, monkeypatch):
+    import time
+
+    import yfinance
+
+    monkeypatch.setattr("rotation_lab.data._TICKER_TIMEOUT_S", 0.2)
+    monkeypatch.setattr("rotation_lab.data._DOWNLOAD_BUDGET_S", 0.8)
+
+    def _hang(*_args, **_kwargs):
+        time.sleep(5)
+        raise AssertionError("the hung download should have been abandoned")
+
+    monkeypatch.setattr(yfinance, "download", _hang)
+    started = time.monotonic()
+    data = fetch_prices(
+        ["GLD", "TLT"],
+        start="2020-01-01",
+        end="2020-06-01",
+        cache_dir=tmp_path,
+        refresh_days=0,
+        force_refresh=True,
+    )
+    assert time.monotonic() - started < 3
+    assert data.is_demo
+    assert data.source == "synthetic demo"
+
+
 def test_cache_write_error_does_not_drop_the_download(tmp_path, monkeypatch):
     idx = pd.bdate_range("2020-01-01", "2020-04-01")
     frame = pd.DataFrame({"Close": np.linspace(100, 110, len(idx))}, index=idx)

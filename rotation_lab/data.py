@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import threading
 import time
 import warnings
 from dataclasses import dataclass, field
@@ -30,6 +31,10 @@ import pandas as pd
 LOG = logging.getLogger(__name__)
 
 __all__ = ["MarketData", "fetch_prices", "synthetic_prices"]
+
+# One hung Yahoo call must not keep Streamlit Cloud from ever becoming healthy.
+_TICKER_TIMEOUT_S = 12.0
+_DOWNLOAD_BUDGET_S = 45.0
 
 DEFAULT_CACHE_DIR = Path(".cache/prices")
 
@@ -255,20 +260,31 @@ def _download(
 
     LOG.info("Downloading %d ticker(s) from Yahoo Finance: %s", len(tickers), ", ".join(tickers))
     out: dict[str, pd.Series] = {}
+    deadline = time.monotonic() + _DOWNLOAD_BUDGET_S
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         for ticker in tickers:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.05:
+                LOG.warning("Download budget spent; leaving the rest of the book")
+                break
             try:
-                raw = yf.download(
-                    ticker,
-                    start=start.strftime("%Y-%m-%d"),
-                    end=(end + pd.Timedelta(days=1)).strftime("%Y-%m-%d"),
-                    auto_adjust=True,
-                    progress=False,
-                    threads=False,
+                raw = _call_with_timeout(
+                    lambda ticker=ticker: yf.download(
+                        ticker,
+                        start=start.strftime("%Y-%m-%d"),
+                        end=(end + pd.Timedelta(days=1)).strftime("%Y-%m-%d"),
+                        auto_adjust=True,
+                        progress=False,
+                        threads=False,
+                    ),
+                    min(_TICKER_TIMEOUT_S, remaining),
                 )
             except Exception as exc:
                 LOG.warning("Download failed for %s: %s", ticker, exc)
+                continue
+            if raw is None:
+                LOG.warning("Download timed out for %s", ticker)
                 continue
             series = _extract_close(raw, ticker)
             if series is None or series.empty:
@@ -281,6 +297,26 @@ def _download(
                 LOG.warning("Could not cache %s (%s); using the download anyway", ticker, exc)
             out[ticker] = series
     return out
+
+
+def _call_with_timeout(fn, timeout: float):
+    """Run ``fn`` on a daemon thread. Return None if it exceeds ``timeout``."""
+    box: dict = {}
+
+    def target() -> None:
+        try:
+            box["value"] = fn()
+        except Exception as exc:  # pragma: no cover - re-raised below
+            box["error"] = exc
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    thread.join(timeout)
+    if thread.is_alive():
+        return None
+    if "error" in box:
+        raise box["error"]
+    return box.get("value")
 
 
 def _extract_close(raw: pd.DataFrame, ticker: str) -> pd.Series | None:

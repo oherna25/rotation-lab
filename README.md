@@ -52,7 +52,7 @@ streamlit run streamlit_app.py
 
 It opens on the 11 S&P 500 sector ETFs versus SPY: the rotation chart on the left, the seasonal matrix on the right, and the row you click drawn as that name's Williams annual cycle. **Refresh Live Data** downloads prices again instead of reusing a cache file from earlier today. **Auto (15m)** repeats that download every 15 minutes while the page is open.
 
-Streamlit Community Cloud deploys `streamlit_app.py` and installs `requirements.txt`. Plotly is in that file because Cloud does not install the optional `interactive` extra. In the app settings, set sharing to **Public** so the page does not bounce through the Streamlit login.
+Streamlit Community Cloud builds this repository. The app file is `streamlit_app.py` on `main`, and Cloud installs `requirements.txt` (Plotly and Streamlit are listed there, not only in the optional extra). Set the app's sharing to **Public**; a private app sends every visitor to the Streamlit login.
 
 ## Universe
 
